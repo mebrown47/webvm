@@ -1,24 +1,24 @@
-# Stage A: Build Node assets on runnerarch (amd64)
-FROM node:20-bullseye AS node-build
+# Stage A: build static/node assets on amd64
+FROM --platform=linux/amd64 node:20-bullseye AS node-build
 WORKDIR /src
 COPY package.json package-lock.json* ./
 RUN npm ci --no-audit --no-fund
 COPY . .
-RUN npm run build
+RUN npm run build   # produces /src/dist (adjust to your project)
 
-# Stage B: i386 runtime for WebVM (minimal SDR runtime)
-FROM --platform=linux/386 i386/debian:bookworm-slim
+# Stage B: i386 runtime for WebVM
+FROM --platform=linux/386 i386/debian:bookworm-slim AS runtime
 ARG DEBIAN_FRONTEND=noninteractive
-
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates wget curl gnupg lsb-release \
-    python3 python3-pip python3-pyrtlsdr rtl-sdr librtlsdr-dev sox \
+    ca-certificates python3 python3-pip python3-pyrtlsdr rtl-sdr librtlsdr-dev sox \
     && rm -rf /var/lib/apt/lists/*
 
-# copy built web assets from amd64 stage
 WORKDIR /app
-COPY --from=node-build /src/dist ./dist   # adjust to your build output dir
+# copy built assets from the amd64 stage into the i386 runtime
+COPY --from=node-build /src/dist ./dist   # <-- adjust if your build output is elsewhere
 COPY --from=node-build /src/package.json ./package.json
-# copy any runtime server or entrypoint as needed
 
+# user / CMD as before
+RUN useradd -m user
+USER user
 CMD ["/bin/bash"]
