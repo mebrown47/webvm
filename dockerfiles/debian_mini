@@ -1,18 +1,74 @@
+# Based on CheerpX debian_large dockerfile
+# Customized for RTL-SDR applications
+
 FROM --platform=i386 i386/debian:bookworm
 ARG DEBIAN_FRONTEND=noninteractive
-RUN apt-get clean && apt-get update && apt-get -y upgrade
-RUN apt-get -y install apt-utils gcc \
-	python3 vim unzip ruby nodejs \
-	fakeroot dbus base whiptail hexedit \
-	patch wamerican ucf manpages \
-	file luajit make lua5.4 dialog curl \
-	less cowsay netcat-openbsd
+
+# Essential WebVM packages (from original dockerfile)
+RUN apt-get update && \
+    apt-get -y upgrade && \
+    apt-get -y install \
+        apt-utils \
+        curl \
+        wget \
+        gpg \
+        lsb-release \
+        ca-certificates \
+        gnupg \
+        vim \
+        nano \
+        sudo \
+        procps \
+        htop \
+        net-tools \
+        dnsutils
+
+# RTL-SDR specific packages
+RUN apt-get -y install \
+        rtl-sdr \
+        librtlsdr-dev \
+        gnuradio \
+        gnuradio-dev \
+        gqrx-sdr \
+        multimon-ng \
+        dump1090-mutability \
+        sox \
+        python3-pip \
+        python3-numpy \
+        python3-scipy \
+        python3-matplotlib
+
+# Install additional SDR tools via pip
+RUN pip3 install \
+        pyrtlsdr \
+        matplotlib \
+        scipy \
+        numpy
+
+# Configure RTL-SDR udev rules (though USB will come through WebUSB)
+RUN echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="0bda", ATTRS{idProduct}=="2832", GROUP="adm", MODE="0666", SYMLINK+="rtl_sdr"' > /etc/udev/rules.d/20.rtlsdr.rules
+RUN echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="0bda", ATTRS{idProduct}=="2838", GROUP="adm", MODE="0666", SYMLINK+="rtl_sdr"' >> /etc/udev/rules.d/20.rtlsdr.rules
+
+# Add RTL-SDR documentation and examples
+RUN mkdir -p /opt/rtl-sdr-examples
+COPY rtl-sdr-examples/* /opt/rtl-sdr-examples/
+
+# Create welcome message for RTL-SDR users
+RUN echo '#!/bin/bash' > /etc/profile.d/rtl-sdr-welcome.sh && \
+    echo 'echo "=== RTL-SDR WebVM Environment ==="' >> /etc/profile.d/rtl-sdr-welcome.sh && \
+    echo 'echo "Available tools:"' >> /etc/profile.d/rtl-sdr-welcome.sh && \
+    echo 'echo "  rtl_test    - Test RTL-SDR dongle"' >> /etc/profile.d/rtl-sdr-welcome.sh && \
+    echo 'echo "  rtl_fm      - FM demodulator"' >> /etc/profile.d/rtl-sdr-welcome.sh && \
+    echo 'echo "  gqrx        - GUI spectrum analyzer"' >> /etc/profile.d/rtl-sdr-welcome.sh && \
+    echo 'echo "  dump1090    - ADS-B decoder"' >> /etc/profile.d/rtl-sdr-welcome.sh && \
+    echo 'echo ""' >> /etc/profile.d/rtl-sdr-welcome.sh && \
+    echo 'echo "Connect your RTL-SDR dongle and allow USB access in browser"' >> /etc/profile.d/rtl-sdr-welcome.sh && \
+    chmod +x /etc/profile.d/rtl-sdr-welcome.sh
+
+# Set up working directory
+WORKDIR /home/user
 RUN useradd -m user && echo "user:password" | chpasswd
-COPY --chown=user:user ./examples /home/user/examples
-RUN chmod -R +x  /home/user/examples/lua
-# We set WORKDIR, as this gets extracted by Webvm to be used as the cwd. This is optional.
-WORKDIR /home/user/
-# We set env, as this gets extracted by Webvm. This is optional.
-ENV HOME="/home/user" TERM="xterm" USER="user" SHELL="/bin/bash" EDITOR="vim" LANG="en_US.UTF-8" LC_ALL="C"
-RUN echo 'root:password' | chpasswd
-CMD [ "/bin/bash" ]
+USER user
+
+# Set bash as default shell
+ENV SHELL=/bin/bash
