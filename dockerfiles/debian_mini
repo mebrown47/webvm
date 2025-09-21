@@ -1,13 +1,10 @@
-# Based on CheerpX debian_large dockerfile
-# Customized for RTL-SDR applications
+# Replace dockerfiles/debian_mini with this content
+# RTL-SDR customized WebVM image
 
 FROM --platform=i386 i386/debian:bookworm
 ARG DEBIAN_FRONTEND=noninteractive
 
-# Essential WebVM packages (from original dockerfile)
-RUN apt-get update && \
-    apt-get -y upgrade && \
-    apt-get -y install \
+RUN apt-get update && apt-get -y upgrade && apt-get -y install \
         apt-utils \
         curl \
         wget \
@@ -21,10 +18,14 @@ RUN apt-get update && \
         procps \
         htop \
         net-tools \
-        dnsutils
-
-# RTL-SDR specific packages
-RUN apt-get -y install \
+        dnsutils \
+        # Build dependencies for Python packages
+        build-essential \
+        python3-dev \
+        libffi-dev \
+        libssl-dev \
+        pkg-config \
+        # RTL-SDR specific packages
         rtl-sdr \
         librtlsdr-dev \
         gnuradio \
@@ -36,39 +37,34 @@ RUN apt-get -y install \
         python3-pip \
         python3-numpy \
         python3-scipy \
-        python3-matplotlib
+        python3-matplotlib \
+        # Use Debian packages instead of pip where possible
+        python3-pyrtlsdr
 
-# Install additional SDR tools via pip
-RUN pip3 install \
-        pyrtlsdr \
-        matplotlib \
-        scipy \
-        numpy
+# Add user and setup
+RUN useradd -m user && echo "user:password" | chpasswd && adduser user sudo
+WORKDIR /home/user/
 
-# Configure RTL-SDR udev rules (though USB will come through WebUSB)
-RUN echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="0bda", ATTRS{idProduct}=="2832", GROUP="adm", MODE="0666", SYMLINK+="rtl_sdr"' > /etc/udev/rules.d/20.rtlsdr.rules
-RUN echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="0bda", ATTRS{idProduct}=="2838", GROUP="adm", MODE="0666", SYMLINK+="rtl_sdr"' >> /etc/udev/rules.d/20.rtlsdr.rules
+# Create RTL-SDR welcome script
+RUN echo '#!/bin/bash' > /usr/local/bin/sdr-welcome && \
+    echo 'echo "=== RTL-SDR WebVM Environment ==="' >> /usr/local/bin/sdr-welcome && \
+    echo 'echo "Available SDR tools:"' >> /usr/local/bin/sdr-welcome && \
+    echo 'echo "  rtl_test     - Test your RTL-SDR dongle"' >> /usr/local/bin/sdr-welcome && \
+    echo 'echo "  rtl_fm       - FM demodulator"' >> /usr/local/bin/sdr-welcome && \
+    echo 'echo "  rtl_power    - Power spectrum analyzer"' >> /usr/local/bin/sdr-welcome && \
+    echo 'echo "  dump1090     - ADS-B decoder for aircraft"' >> /usr/local/bin/sdr-welcome && \
+    echo 'echo "  gqrx         - GUI spectrum analyzer"' >> /usr/local/bin/sdr-welcome && \
+    echo 'echo ""' >> /usr/local/bin/sdr-welcome && \
+    echo 'echo "🔌 Connect RTL-SDR dongle and grant browser USB access"' >> /usr/local/bin/sdr-welcome && \
+    echo 'echo "🧪 Try: rtl_test -t  (test dongle)"' >> /usr/local/bin/sdr-welcome && \
+    echo 'echo ""' >> /usr/local/bin/sdr-welcome && \
+    chmod +x /usr/local/bin/sdr-welcome
 
-# Add RTL-SDR documentation and examples
-RUN mkdir -p /opt/rtl-sdr-examples
-COPY rtl-sdr-examples/* /opt/rtl-sdr-examples/
+# Add to bashrc so it shows on login
+RUN echo 'sdr-welcome' >> /home/user/.bashrc
 
-# Create welcome message for RTL-SDR users
-RUN echo '#!/bin/bash' > /etc/profile.d/rtl-sdr-welcome.sh && \
-    echo 'echo "=== RTL-SDR WebVM Environment ==="' >> /etc/profile.d/rtl-sdr-welcome.sh && \
-    echo 'echo "Available tools:"' >> /etc/profile.d/rtl-sdr-welcome.sh && \
-    echo 'echo "  rtl_test    - Test RTL-SDR dongle"' >> /etc/profile.d/rtl-sdr-welcome.sh && \
-    echo 'echo "  rtl_fm      - FM demodulator"' >> /etc/profile.d/rtl-sdr-welcome.sh && \
-    echo 'echo "  gqrx        - GUI spectrum analyzer"' >> /etc/profile.d/rtl-sdr-welcome.sh && \
-    echo 'echo "  dump1090    - ADS-B decoder"' >> /etc/profile.d/rtl-sdr-welcome.sh && \
-    echo 'echo ""' >> /etc/profile.d/rtl-sdr-welcome.sh && \
-    echo 'echo "Connect your RTL-SDR dongle and allow USB access in browser"' >> /etc/profile.d/rtl-sdr-welcome.sh && \
-    chmod +x /etc/profile.d/rtl-sdr-welcome.sh
+# Environment setup 
+ENV HOME="/home/user" TERM="xterm" USER="user" SHELL="/bin/bash" EDITOR="vim" LANG="en_US.UTF-8" LC_ALL="C"
+RUN echo 'root:password' | chpasswd
 
-# Set up working directory
-WORKDIR /home/user
-RUN useradd -m user && echo "user:password" | chpasswd
-USER user
-
-# Set bash as default shell
-ENV SHELL=/bin/bash
+CMD [ "/bin/bash" ]
