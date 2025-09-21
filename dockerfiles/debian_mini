@@ -1,17 +1,18 @@
-# Replace dockerfiles/debian_mini with this content
-# RTL-SDR customized WebVM image
+# RTL-SDR customized WebVM image (i386)
+FROM --platform=linux/386 i386/debian:bookworm-slim
 
-FROM --platform=i386 i386/debian:bookworm
 ARG DEBIAN_FRONTEND=noninteractive
+ENV HOME=/home/user LANG=en_US.UTF-8 LC_ALL=C TERM=xterm SHELL=/bin/bash USER=user EDITOR=vim
 
-RUN apt-get update && apt-get -y upgrade && apt-get -y install \
+# Basic apt setup, install runtime + build deps we actually need
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
         apt-utils \
-        curl \
-        wget \
-        gpg \
-        lsb-release \
         ca-certificates \
         gnupg \
+        wget \
+        curl \
+        lsb-release \
         vim \
         nano \
         sudo \
@@ -19,13 +20,21 @@ RUN apt-get update && apt-get -y upgrade && apt-get -y install \
         htop \
         net-tools \
         dnsutils \
-        # Build dependencies for Python packages
-        build-essential \
+        # python & build basics (we prefer Debian wheels so no heavy pip builds)
+        python3 \
+        python3-pip \
         python3-dev \
+        python3-setuptools \
+        python3-wheel \
+        python3-numpy \
+        python3-scipy \
+        python3-matplotlib \
+        python3-pyrtlsdr \
+        build-essential \
         libffi-dev \
         libssl-dev \
         pkg-config \
-        # RTL-SDR specific packages
+        # RTL-SDR / gnuradio tools
         rtl-sdr \
         librtlsdr-dev \
         gnuradio \
@@ -34,37 +43,35 @@ RUN apt-get update && apt-get -y upgrade && apt-get -y install \
         multimon-ng \
         dump1090-mutability \
         sox \
-        python3-pip \
-        python3-numpy \
-        python3-scipy \
-        python3-matplotlib \
-        # Use Debian packages instead of pip where possible
-        python3-pyrtlsdr
+        # NodeJS runtime - use Debian's package (Bookworm has Node >= 18?), adjust if you need a newer Node
+        nodejs \
+        npm \
+    && rm -rf /var/lib/apt/lists/*
 
-# Add user and setup
-RUN useradd -m user && echo "user:password" | chpasswd && adduser user sudo
-WORKDIR /home/user/
+# Create non-root user
+RUN useradd -m -s /bin/bash user && echo "user:password" | chpasswd && adduser user sudo
+WORKDIR /home/user
 
-# Create RTL-SDR welcome script
-RUN echo '#!/bin/bash' > /usr/local/bin/sdr-welcome && \
-    echo 'echo "=== RTL-SDR WebVM Environment ==="' >> /usr/local/bin/sdr-welcome && \
-    echo 'echo "Available SDR tools:"' >> /usr/local/bin/sdr-welcome && \
-    echo 'echo "  rtl_test     - Test your RTL-SDR dongle"' >> /usr/local/bin/sdr-welcome && \
-    echo 'echo "  rtl_fm       - FM demodulator"' >> /usr/local/bin/sdr-welcome && \
-    echo 'echo "  rtl_power    - Power spectrum analyzer"' >> /usr/local/bin/sdr-welcome && \
-    echo 'echo "  dump1090     - ADS-B decoder for aircraft"' >> /usr/local/bin/sdr-welcome && \
-    echo 'echo "  gqrx         - GUI spectrum analyzer"' >> /usr/local/bin/sdr-welcome && \
-    echo 'echo ""' >> /usr/local/bin/sdr-welcome && \
-    echo 'echo "🔌 Connect RTL-SDR dongle and grant browser USB access"' >> /usr/local/bin/sdr-welcome && \
-    echo 'echo "🧪 Try: rtl_test -t  (test dongle)"' >> /usr/local/bin/sdr-welcome && \
-    echo 'echo ""' >> /usr/local/bin/sdr-welcome && \
-    chmod +x /usr/local/bin/sdr-welcome
+# Small welcome script
+RUN printf '%s\n' '#!/bin/bash' \
+    'echo "=== RTL-SDR WebVM Environment ==="' \
+    'echo "Available SDR tools: rtl_test, rtl_fm, rtl_power, dump1090, gqrx"' \
+    'echo "🔌 Connect RTL-SDR dongle and grant browser USB access"' \
+    'echo "🧪 Try: rtl_test -t"' > /usr/local/bin/sdr-welcome \
+    && chmod +x /usr/local/bin/sdr-welcome \
+    && echo 'sdr-welcome' >> /home/user/.bashrc
 
-# Add to bashrc so it shows on login
-RUN echo 'sdr-welcome' >> /home/user/.bashrc
+# Make sure npm uses a project-local install in CI builds (optional)
+# Copy only package files first to leverage Docker cache for npm install
+USER user
+COPY --chown=user:user package.json package-lock.json* ./
 
-# Environment setup 
-ENV HOME="/home/user" TERM="xterm" USER="user" SHELL="/bin/bash" EDITOR="vim" LANG="en_US.UTF-8" LC_ALL="C"
-RUN echo 'root:password' | chpasswd
+RUN if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
 
-CMD [ "/bin/bash" ]
+# Copy remaining project files and run build
+COPY --chown=user:user . .
+RUN npm run build
+
+# Final defaults
+ENV PATH="/home/user/.local/bin:${PATH}"
+CMD ["/bin/bash"]
